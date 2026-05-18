@@ -1,0 +1,4 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
+name: agentic-mlops-monitor
+auth_mode: key
+description: FastAPI endpoint exposing the monitoring agent + churn model.

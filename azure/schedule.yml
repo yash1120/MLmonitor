@@ -1,0 +1,24 @@
+$schema: https://azuremlschemas.azureedge.net/latest/schedule.schema.json
+name: hourly-drift-check
+description: Run the agentic drift check every hour against the live production window.
+
+trigger:
+  type: cron
+  expression: "0 * * * *"
+  time_zone: Australia/Sydney
+
+create_job:
+  type: command
+  display_name: agentic-drift-check
+  experiment_name: ml-monitor
+  code: ../
+  command: >
+    pip install -r requirements.txt &&
+    PYTHONPATH=src python scripts/run_monitor.py --window-hours 24
+  environment:
+    image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04
+    conda_file: environment.yml
+  compute: serverless
+  resources:
+    instance_type: Standard_DS3_v2
+    instance_count: 1

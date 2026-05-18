@@ -1,0 +1,70 @@
+name: retrain
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why retraining was triggered (filled by the monitoring agent)"
+        required: false
+        default: "manual run"
+
+permissions:
+  contents: read
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_EXPERIMENT_NAME: ml-monitor
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      AZURE_WORKSPACE_NAME: ${{ secrets.AZURE_WORKSPACE_NAME }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Log trigger
+        run: |
+          echo "Retraining triggered: ${{ github.event.inputs.reason }}"
+
+      - name: Train baseline
+        run: |
+          PYTHONPATH=src python scripts/train_baseline.py
+
+      - name: Run drift tests
+        run: |
+          PYTHONPATH=src pytest tests -q
+
+      - name: Login to Azure
+        if: env.AZURE_SUBSCRIPTION_ID != ''
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Submit Azure ML training job
+        if: env.AZURE_SUBSCRIPTION_ID != ''
+        run: |
+          az extension add --name ml --yes --upgrade
+          az ml job create \
+            --file azure/train-job.yml \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --workspace-name "$AZURE_WORKSPACE_NAME" \
+            --set tags.trigger_reason="${{ github.event.inputs.reason }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-model
+          path: data/baseline_model.joblib
+          if-no-files-found: warn
