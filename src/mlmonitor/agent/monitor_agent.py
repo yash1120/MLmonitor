@@ -131,12 +131,24 @@ def _extract_final_json(text: str) -> dict[str, Any] | None:
                     candidates.append(text[start : i + 1])
                     break
         start = text.find("{", start + 1)
-    for blob in reversed(candidates):
+
+    parsed: list[dict[str, Any]] = []
+    for blob in candidates:
         try:
-            return json.loads(blob)
+            obj = json.loads(blob)
         except json.JSONDecodeError:
             continue
-    return None
+        if isinstance(obj, dict):
+            parsed.append(obj)
+
+    if not parsed:
+        return None
+    # Prefer the verdict object (it carries these keys), not a nested
+    # recommendation sub-object that also happens to be valid JSON.
+    for obj in parsed:
+        if "diagnosis" in obj or "trigger_retraining" in obj:
+            return obj
+    return max(parsed, key=lambda d: len(json.dumps(d)))
 
 
 def run_diagnostic_agent(drift_report: dict[str, Any]) -> dict[str, Any]:
