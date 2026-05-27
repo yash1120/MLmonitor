@@ -10,51 +10,15 @@ An agentic AI system that continuously monitors a production ML model, detects *
 
 ## Architecture
 
-```
-                            ┌─────────────────────────────────────────────┐
-                            │              FastAPI service                │
-                            │  /predict   /monitor/check   /monitor/...   │
-                            └────┬───────────────┬────────────────┬───────┘
-                                 │               │                │
-                                 ▼               ▼                ▼
-                       ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-                       │  Reference   │  │  Production  │  │  MLflow      │
-                       │  data + model│  │  log         │  │  tracking    │
-                       │  (joblib)    │  │  (parquet)   │  │  (sqlite or  │
-                       └──────┬───────┘  └──────┬───────┘  │   Azure ML)  │
-                              │                 │           └──────────────┘
-                              └────────┬────────┘
-                                       ▼
-                       ┌─────────────────────────────────────┐
-                       │  Drift engine                       │
-                       │  • PSI per feature                  │
-                       │  • KS two-sample test               │
-                       │  • Performance F1/AUC vs baseline   │
-                       │  • Prediction-distribution drift    │
-                       └──────────────┬──────────────────────┘
-                                      ▼
-                       ┌─────────────────────────────────────┐
-                       │  LangGraph agent (Groq Llama 3.3)   │
-                       │  Tools:                             │
-                       │   - get_top_drifting_features       │
-                       │   - inspect_feature                 │
-                       │   - get_performance_metrics         │
-                       │   - get_recent_drift_history        │
-                       │   - trigger_retraining              │
-                       └──────────────┬──────────────────────┘
-                                      ▼
-                       ┌─────────────────────────────────────┐
-                       │  Diagnosis + recommendations (JSON) │
-                       │  Persisted to SQLite agent_reports  │
-                       └──────────────┬──────────────────────┘
-                                      ▼
-                       ┌─────────────────────────────────────┐
-                       │  GitHub Actions: retrain.yml        │
-                       │  (workflow_dispatch from agent)     │
-                       │   → trains, runs tests              │
-                       │   → optionally submits Azure ML job │
-                       └─────────────────────────────────────┘
-```
+![Agentic MLOps Monitor architecture](diagrams/architecture.png)
+
+The full pipeline: production + reference data feed the drift engine (PSI, KS, F1/AUC vs baseline); a LangGraph agent investigates the results and emits a verdict; breaching thresholds dispatches a GitHub Actions retraining job whose new model becomes the next baseline. FastAPI serves it; MLflow and SQLite track everything.
+
+### How the agent decides
+
+![How the monitoring agent decides](diagrams/agent_loop.png)
+
+The agent doesn't just alert on a threshold — it uses tools to investigate whether the drift actually matters, and only triggers retraining when **both** data drift (`PSI ≥ 0.25`) **and** performance degradation (`F1 drop ≥ 0.05`) are present. Otherwise it recommends a human review.
 
 ---
 
