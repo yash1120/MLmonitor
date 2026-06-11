@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import httpx
@@ -12,7 +13,6 @@ from langgraph.prebuilt import create_react_agent
 from mlmonitor.agent.prompts import INITIAL_HUMAN_PROMPT, SYSTEM_PROMPT
 from mlmonitor.config import settings
 from mlmonitor.storage.db import recent_drift_checks
-
 
 _current_report: dict[str, Any] = {}
 
@@ -171,15 +171,23 @@ def run_diagnostic_agent(drift_report: dict[str, Any]) -> dict[str, Any]:
         n_samples=drift_report.get("n_samples"),
     )
 
-    state = agent.invoke(
-        {
-            "messages": [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=initial_human),
-            ]
-        },
-        config={"recursion_limit": 20},
-    )
+    messages = {
+        "messages": [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=initial_human),
+        ]
+    }
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            state = agent.invoke(messages, config={"recursion_limit": 20})
+            break
+        except Exception as exc:  # Groq free tier rate-limits; back off and retry
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(2 ** (attempt + 1))
+    else:
+        raise RuntimeError(f"Agent failed after 3 attempts: {last_exc}") from last_exc
 
     final_text = ""
     triggered = False

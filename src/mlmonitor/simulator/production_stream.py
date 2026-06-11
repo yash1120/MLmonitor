@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -38,10 +38,13 @@ def _inject_concept_drift(df: pd.DataFrame, intensity: float, rng: np.random.Gen
     out = df.copy()
     if TARGET_NAME not in out.columns:
         return out
-    flip_prob = 0.25 * intensity
-    high_util_mask = out["credit_utilisation"] > 0.6
+    flip_prob = 0.35 * intensity
+    high_util_mask = out["credit_utilisation"] > 0.5
     flips = rng.random(len(out)) < flip_prob
-    out.loc[high_util_mask & flips, TARGET_NAME] = 1
+    affected = high_util_mask & flips
+    # invert the label (not just set to 1) so the relationship the model
+    # learned actually breaks — this is what concept drift means
+    out.loc[affected, TARGET_NAME] = 1 - out.loc[affected, TARGET_NAME].astype(int)
     return out
 
 
@@ -53,9 +56,27 @@ def generate_production_batch(
     seed: int | None = None,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    base_time = base_time or datetime.now(timezone.utc)
+    base_time = base_time or datetime.now(UTC)
 
-    df = generate_reference_dataset(n_samples=n, random_state=rng.integers(0, 1_000_000))
+    # Sample from the SAME distribution as the reference set (fixed generator seed),
+    # then jitter slightly so rows aren't literal duplicates. Re-seeding
+    # make_classification would change the distribution itself and make even
+    # "clean" batches register as drifted.
+    # Must match the reference dataset's exact (n_samples, seed): the generator
+    # rescales features by the sample's own min/max, so any other size/seed
+    # yields a *differently scaled* distribution, not just different rows.
+    pool = generate_reference_dataset(n_samples=5_000, random_state=42)
+    df = pool.sample(n=n, replace=True, random_state=rng.integers(0, 2**31 - 1)).reset_index(
+        drop=True
+    )
+    discrete = {"logins_last_30d", "support_tickets", "tenure_months", "n_products"}
+    for feat in FEATURE_NAMES:
+        std = float(pool[feat].std()) or 1.0
+        df[feat] = df[feat] + rng.normal(0, 0.01 * std, size=n)
+        if feat in discrete:
+            # keep count features integral — fractional jitter on a discrete
+            # column reads as distribution shift to PSI/KS
+            df[feat] = df[feat].round().clip(lower=0)
     if drift_mode in ("covariate", "both"):
         df = _inject_covariate_drift(df, intensity, rng)
     if drift_mode in ("concept", "both"):

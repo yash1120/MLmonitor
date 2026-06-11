@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -27,7 +27,7 @@ class DriftCheck(Base):
     __tablename__ = "drift_checks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    ts = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    ts = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
     status = Column(String(16), nullable=False, index=True)
     psi_max = Column(Float, nullable=False)
     psi_mean = Column(Float, nullable=False)
@@ -43,19 +43,29 @@ class AgentReport(Base):
     __tablename__ = "agent_reports"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    ts = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    ts = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
     drift_check_id = Column(Integer, nullable=False, index=True)
     diagnosis = Column(String, nullable=False)
     recommendations = Column(JSON, nullable=False)
     triggered_retraining = Column(Integer, default=0, nullable=False)
 
 
-_engine = create_engine(settings.metrics_db_url, future=True)
-Base.metadata.create_all(_engine)
+_engine = None
+_engine_url: str | None = None
+
+
+def _get_engine():
+    """Create the engine lazily so tests can repoint settings.metrics_db_url."""
+    global _engine, _engine_url
+    if _engine is None or _engine_url != settings.metrics_db_url:
+        _engine = create_engine(settings.metrics_db_url, future=True)
+        _engine_url = settings.metrics_db_url
+        Base.metadata.create_all(_engine)
+    return _engine
 
 
 def save_drift_check(report: dict[str, Any]) -> int:
-    with Session(_engine) as session:
+    with Session(_get_engine()) as session:
         row = DriftCheck(
             status=report.get("status", "ok"),
             psi_max=float(report.get("psi_max", 0.0)),
@@ -78,7 +88,7 @@ def save_agent_report(
     recommendations: list[dict],
     triggered_retraining: bool,
 ) -> int:
-    with Session(_engine) as session:
+    with Session(_get_engine()) as session:
         row = AgentReport(
             drift_check_id=drift_check_id,
             diagnosis=diagnosis,
@@ -91,7 +101,7 @@ def save_agent_report(
 
 
 def recent_drift_checks(limit: int = 20) -> list[dict]:
-    with Session(_engine) as session:
+    with Session(_get_engine()) as session:
         rows = session.execute(
             select(DriftCheck).order_by(DriftCheck.ts.desc()).limit(limit)
         ).scalars().all()
@@ -111,7 +121,7 @@ def recent_drift_checks(limit: int = 20) -> list[dict]:
 
 
 def recent_agent_reports(limit: int = 20) -> list[dict]:
-    with Session(_engine) as session:
+    with Session(_get_engine()) as session:
         rows = session.execute(
             select(AgentReport).order_by(AgentReport.ts.desc()).limit(limit)
         ).scalars().all()

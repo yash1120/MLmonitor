@@ -1,6 +1,6 @@
 from pathlib import Path
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     psi_warn_threshold: float = 0.1
     psi_alert_threshold: float = 0.25
     perf_drop_alert: float = 0.05
+    min_samples_for_check: int = 100
+    log_level: str = "INFO"
 
     github_owner: str = ""
     github_repo: str = ""

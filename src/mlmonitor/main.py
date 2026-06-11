@@ -5,18 +5,19 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from mlmonitor import __version__
-from mlmonitor.config import settings
-from mlmonitor.models.train import FEATURE_NAMES, train_baseline, load_model
+from mlmonitor import observability as obs
+from mlmonitor.dashboard import DASHBOARD_HTML
+from mlmonitor.models.train import load_model, train_baseline
 from mlmonitor.monitor import diagnose_with_agent, run_drift_check
 from mlmonitor.simulator.production_stream import (
     append_to_production_log,
     generate_production_batch,
 )
 from mlmonitor.storage.db import recent_agent_reports, recent_drift_checks
-
 
 app = FastAPI(
     title="Agentic MLOps Monitor",
@@ -31,7 +32,10 @@ app = FastAPI(
 
 class PredictRequest(BaseModel):
     instances: list[dict[str, float]] = Field(
-        ..., description="List of feature dicts matching the trained model schema."
+        ...,
+        min_length=1,
+        max_length=10_000,
+        description="List of feature dicts matching the trained model schema.",
     )
 
 
@@ -70,8 +74,21 @@ def root() -> dict[str, Any]:
             "POST /monitor/diagnose",
             "GET  /monitor/checks",
             "GET  /monitor/reports",
+            "GET  /dashboard",
+            "GET  /metrics",
         ],
     }
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard() -> HTMLResponse:
+    return HTMLResponse(DASHBOARD_HTML)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    payload, content_type = obs.metrics_payload()
+    return Response(content=payload, media_type=content_type)
 
 
 @app.post("/train/baseline")
@@ -93,14 +110,17 @@ def predict(req: PredictRequest) -> PredictResponse:
         raise HTTPException(
             status_code=409,
             detail="Baseline model not trained yet. POST /train/baseline first.",
-        )
+        ) from None
     df = pd.DataFrame(req.instances)
     missing = set(feature_names) - set(df.columns)
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing features: {sorted(missing)}")
     df = df[feature_names]
+    if not np.isfinite(df.to_numpy(dtype=float)).all():
+        raise HTTPException(status_code=400, detail="Instances contain NaN or infinite values.")
     preds = pipeline.predict(df).astype(int).tolist()
     probs = pipeline.predict_proba(df)[:, 1].astype(float).tolist()
+    obs.PREDICTIONS_TOTAL.inc(len(preds))
     return PredictResponse(predictions=preds, probabilities=probs)
 
 
@@ -121,19 +141,25 @@ def simulate_batch(req: SimulateRequest) -> dict[str, Any]:
 @app.post("/monitor/check")
 def monitor_check(req: CheckRequest) -> dict[str, Any]:
     try:
-        report = run_drift_check(window_hours=req.window_hours)
+        with obs.CHECK_DURATION.time():
+            report = run_drift_check(window_hours=req.window_hours)
     except FileNotFoundError:
         raise HTTPException(
             status_code=409,
             detail="Baseline model or reference data missing. POST /train/baseline first.",
-        )
+        ) from None
+    obs.record_drift_check(report)
     response: dict[str, Any] = {"drift_report": _serialise(report)}
 
     if req.run_agent and report.get("status") in {"warn", "alert"}:
         try:
             verdict = diagnose_with_agent(report)
             response["agent_verdict"] = verdict
+            obs.AGENT_RUNS_TOTAL.labels(outcome="ok").inc()
+            if verdict.get("actually_triggered"):
+                obs.RETRAIN_TRIGGERS_TOTAL.inc()
         except Exception as exc:
+            obs.AGENT_RUNS_TOTAL.labels(outcome="error").inc()
             response["agent_error"] = str(exc)
     return response
 
@@ -144,7 +170,7 @@ def monitor_diagnose(window_hours: int = 24) -> dict[str, Any]:
     try:
         report = run_drift_check(window_hours=window_hours)
     except FileNotFoundError:
-        raise HTTPException(status_code=409, detail="Train baseline first.")
+        raise HTTPException(status_code=409, detail="Train baseline first.") from None
     verdict = diagnose_with_agent(report)
     return {"drift_report": _serialise(report), "agent_verdict": verdict}
 

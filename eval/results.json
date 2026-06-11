@@ -1,0 +1,111 @@
+{
+  "baseline_f1": 0.5722543352601156,
+  "false_positive_rate": 0.0,
+  "batch_size": 2000,
+  "scenarios": [
+    {
+      "mode": "none",
+      "intensity": 0.0,
+      "trials": 30,
+      "data_drift_detection_rate": 0.0,
+      "warn_or_alert_rate": 0.0,
+      "concept_drift_detection_rate": 0.0,
+      "any_alert_rate": 0.0,
+      "mean_psi_max": 0.00754137269096235,
+      "mean_f1_drop": 0.0,
+      "expected_data_drift": false,
+      "expected_concept_drift": false
+    },
+    {
+      "mode": "covariate",
+      "intensity": 0.25,
+      "trials": 30,
+      "data_drift_detection_rate": 0.0,
+      "warn_or_alert_rate": 0.3333333333333333,
+      "concept_drift_detection_rate": 0.0,
+      "any_alert_rate": 0.0,
+      "mean_psi_max": 0.09332617118052848,
+      "mean_f1_drop": 0.00038866636008905164,
+      "expected_data_drift": true,
+      "expected_concept_drift": false
+    },
+    {
+      "mode": "covariate",
+      "intensity": 0.5,
+      "trials": 30,
+      "data_drift_detection_rate": 1.0,
+      "warn_or_alert_rate": 1.0,
+      "concept_drift_detection_rate": 0.2,
+      "any_alert_rate": 1.0,
+      "mean_psi_max": 0.34675394164504864,
+      "mean_f1_drop": 0.03416964087619886,
+      "expected_data_drift": true,
+      "expected_concept_drift": false
+    },
+    {
+      "mode": "covariate",
+      "intensity": 1.0,
+      "trials": 30,
+      "data_drift_detection_rate": 1.0,
+      "warn_or_alert_rate": 1.0,
+      "concept_drift_detection_rate": 1.0,
+      "any_alert_rate": 1.0,
+      "mean_psi_max": 1.4170417565717977,
+      "mean_f1_drop": 0.15369732643964043,
+      "expected_data_drift": true,
+      "expected_concept_drift": false
+    },
+    {
+      "mode": "concept",
+      "intensity": 0.5,
+      "trials": 30,
+      "data_drift_detection_rate": 0.0,
+      "warn_or_alert_rate": 0.0,
+      "concept_drift_detection_rate": 0.1,
+      "any_alert_rate": 0.1,
+      "mean_psi_max": 0.00754137269096235,
+      "mean_f1_drop": 0.022811781402663652,
+      "expected_data_drift": false,
+      "expected_concept_drift": true
+    },
+    {
+      "mode": "concept",
+      "intensity": 1.0,
+      "trials": 30,
+      "data_drift_detection_rate": 0.0,
+      "warn_or_alert_rate": 0.0,
+      "concept_drift_detection_rate": 0.9666666666666667,
+      "any_alert_rate": 0.9666666666666667,
+      "mean_psi_max": 0.00754137269096235,
+      "mean_f1_drop": 0.10464616411570911,
+      "expected_data_drift": false,
+      "expected_concept_drift": true
+    },
+    {
+      "mode": "both",
+      "intensity": 0.5,
+      "trials": 30,
+      "data_drift_detection_rate": 1.0,
+      "warn_or_alert_rate": 1.0,
+      "concept_drift_detection_rate": 1.0,
+      "any_alert_rate": 1.0,
+      "mean_psi_max": 0.34675394164504864,
+      "mean_f1_drop": 0.13964218269963116,
+      "expected_data_drift": true,
+      "expected_concept_drift": true
+    },
+    {
+      "mode": "both",
+      "intensity": 1.0,
+      "trials": 30,
+      "data_drift_detection_rate": 1.0,
+      "warn_or_alert_rate": 1.0,
+      "concept_drift_detection_rate": 1.0,
+      "any_alert_rate": 1.0,
+      "mean_psi_max": 1.4170417565717977,
+      "mean_f1_drop": 0.18000613155943126,
+      "expected_data_drift": true,
+      "expected_concept_drift": true
+    }
+  ]
+}

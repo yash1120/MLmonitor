@@ -99,6 +99,37 @@ Thresholds (configurable via `.env`):
 - `PSI_WARN_THRESHOLD` = 0.10
 - `PSI_ALERT_THRESHOLD` = 0.25
 - `PERF_DROP_ALERT` = 0.05
+- `MIN_SAMPLES_FOR_CHECK` = 100 (windows smaller than this return `insufficient_data` instead of unreliable stats)
+
+---
+
+## Measured detection performance
+
+The detectors are benchmarked end-to-end (same code path the live monitor runs) over 30 simulated
+production batches per scenario — see [eval/RESULTS.md](eval/RESULTS.md), regenerable with
+`PYTHONPATH=src python scripts/evaluate_drift.py`:
+
+| Scenario | Data-drift detection | Concept-drift detection | False alarms |
+|----------|---------------------|------------------------|--------------|
+| Clean traffic | — | — | **0%** |
+| Covariate shift (moderate, 0.5×) | **100%** | 20% | — |
+| Covariate shift (strong, 1.0×) | **100%** | 100% | — |
+| Concept drift only (strong) | 0% (by design: features unchanged) | **97%** | — |
+| Both (moderate) | **100%** | **100%** | — |
+
+The concept-only row is the interesting one: labels shift while feature distributions stay identical
+(PSI ≈ 0.008), so PSI/KS see nothing — and the F1-drop detector still catches 97%. That's why the
+system runs both detectors rather than relying on data drift as a proxy.
+
+CI re-runs this evaluation on every push and uploads the results as a build artifact.
+
+---
+
+## Observability
+
+- **`GET /dashboard`** — live HTML dashboard: latest status, PSI trend sparkline, recent checks, and agent verdicts. Auto-refreshes; zero build step.
+- **`GET /metrics`** — Prometheus exposition: prediction counts, drift checks by status, agent run outcomes, retrain dispatches, last PSI/F1 gauges, and check-duration histogram. Point any Prometheus/Grafana at it.
+- Structured logs via `LOG_LEVEL` (default `INFO`).
 
 ---
 
@@ -127,7 +158,7 @@ When `MLFLOW_TRACKING_URI` is set to the Azure ML workspace tracking URI, all ru
 
 ## CI/CD
 
-- **`.github/workflows/ci.yml`** — runs `pytest` and a Docker build on every push/PR.
+- **`.github/workflows/ci.yml`** — `ruff` lint, `pytest` with a 70% coverage gate, the drift-detection evaluation (results uploaded as artifact), and a Docker build on every push/PR.
 - **`.github/workflows/retrain.yml`** — `workflow_dispatch` triggered by the LangChain agent. Trains the baseline, runs tests, and (if Azure credentials are present) submits an Azure ML training job.
 
 The agent dispatches the workflow via the GitHub REST API using a fine-grained PAT (set `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_TOKEN` in `.env`).
@@ -149,10 +180,14 @@ src/mlmonitor/
   mlflow_utils/tracking.py
   simulator/production_stream.py
   storage/db.py          # SQLite via SQLAlchemy
-scripts/                 # CLI entry points
+  observability.py       # Prometheus counters/gauges/histograms
+  dashboard.py           # single-file HTML dashboard (GET /dashboard)
+  logging_utils.py       # shared logging setup
+scripts/                 # CLI entry points + evaluate_drift.py benchmark
+eval/                    # measured detection rates (RESULTS.md + results.json)
 azure/                   # Azure ML manifests
-.github/workflows/       # CI + retrain
-tests/                   # PSI / drift unit tests
+.github/workflows/       # CI (lint + tests + eval + docker) + retrain
+tests/                   # 31 tests: drift math, simulator, monitor, API, agent parsing, storage
 ```
 
 ---
@@ -161,5 +196,10 @@ tests/                   # PSI / drift unit tests
 
 ```powershell
 $env:PYTHONPATH = "src"
-pytest tests -q
+pytest tests -q          # 31 tests, all offline — no API key needed
+ruff check src tests scripts
 ```
+
+The suite covers the drift statistics, the simulator (including a regression test for a
+distribution-mismatch bug the evaluation harness caught), the end-to-end API flow
+(train → predict → simulate → check), agent output parsing, and the metrics store.
