@@ -13,5 +13,6 @@ data/mlruns
 mlruns
 tests
 *.md
+!README.md
 .github
 azure
