@@ -40,14 +40,21 @@ Most monitoring tools stop at a dashboard. The leap this project makes is treati
 
 That's what makes it *agentic* rather than *automated*. Automation runs the same script every time. The agent reasons about whether the script should run.
 
-## What I'd build next
+## What's been built since
 
-Honest list, in priority order:
+Several items that were once on the "next" list are now in the codebase:
 
-- **Real-world dataset adapter.** The current demo runs on a synthetic churn dataset. The drift engine is dataset-agnostic, but a swap-in adapter for a Kaggle credit-risk dataset would make the demo land harder.
-- **Slack / Teams notifier.** The agent's verdict is currently surfaced through the FastAPI endpoint and persisted to SQLite. Pushing it into the channel where the on-call ML engineer actually lives is a one-afternoon job.
-- **Feature-attribution drift.** PSI tells you the inputs shifted. SHAP-value drift tells you whether the *model's reasoning* shifted. The two are not the same thing and the second is the more interesting signal.
-- **Champion / challenger evaluation.** Right now retraining produces a new baseline. The next step is to score the candidate against the incumbent on the same production window before promoting it.
+- **Champion / challenger promotion** (`models/promotion.py`) — a retrained candidate is promoted over the incumbent only if it wins on the latest labelled production window; the winner is tagged `@champion` in the MLflow registry.
+- **Slack / Discord notifier** (`notifications.py`) — the verdict is pushed to an incoming webhook on warn/alert, env-gated so it no-ops when unset.
+- **Label-latency model + label-free signal** — concept drift is scored only on the slice whose labels would have arrived, and the prediction-distribution PSI is wired in as the online early-warning signal.
+- **A deterministic retrain gate** — the both-conditions rule is enforced in code (kill-switch + rate limit + audit trail), not just asked of the LLM, and proven by a decision eval.
+- **Within-window + per-segment attribution** — so the agent can distinguish a transient blip from a sustained ramp.
+
+## What I'd still build next
+
+- **Real-world dataset adapter.** The synthetic generator now yields a usable model (F1 0.69 / AUC 0.84), but a swap-in adapter for a Kaggle credit-risk or IBM Telco dataset would make the demo land harder. The drift engine is already dataset-agnostic.
+- **Feature-attribution drift.** PSI tells you the inputs shifted; SHAP-value drift tells you whether the *model's reasoning* shifted — the more interesting signal.
+- **Multivariate / interaction drift.** A domain-classifier (reference-vs-production AUC) would catch joint-distribution shifts that per-feature PSI structurally cannot — worth adding alongside a simulator mode that actually produces one.
 
 ---
 

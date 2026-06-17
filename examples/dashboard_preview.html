@@ -1,10 +1,4 @@
-"""Single-file HTML dashboard served at GET /dashboard.
-
-Pure stdlib-on-the-server, vanilla JS in the browser — polls the existing
-/monitor/checks and /monitor/reports endpoints, no build step.
-"""
-
-DASHBOARD_HTML = """<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -44,6 +38,7 @@ DASHBOARD_HTML = """<!doctype html>
 </style>
 </head>
 <body>
+<script>window.fetch=function(u){var d=u.indexOf("reports")>-1?[{"id": 3, "ts": "2026-06-17T22:40:14", "diagnosis": "Significant covariate drift (psi_max 2.03) across monthly_spend, credit_utilisation, logins_last_30d, support_tickets; F1 dropped 0.37 vs baseline and the shift is sustained across temporal slices. Recommend retraining.", "triggered_retraining": true}, {"id": 2, "ts": "2026-06-17T21:39:58", "diagnosis": "Minor distributional wobble in monthly_spend (PSI 0.14) with no F1 impact \u2014 transient, manual review only.", "triggered_retraining": false}, {"id": 1, "ts": "2026-06-17T20:39:42", "diagnosis": "XSS test: <img src=x onerror=alert(1)> \u2014 must render as text, not execute.", "triggered_retraining": false}]:[{"id": 7, "ts": "2026-06-17T22:40:11", "status": "alert", "psi_max": 2.028, "psi_mean": 0.712, "perf_f1": 0.321, "perf_drop": 0.372}, {"id": 6, "ts": "2026-06-17T21:39:55", "status": "warn", "psi_max": 0.142, "psi_mean": 0.061, "perf_f1": 0.66, "perf_drop": 0.03}, {"id": 5, "ts": "2026-06-17T20:39:40", "status": "ok", "psi_max": 0.018, "psi_mean": 0.009, "perf_f1": 0.69, "perf_drop": 0.0}, {"id": 4, "ts": "2026-06-17T19:39:21", "status": "ok", "psi_max": 0.011, "psi_mean": 0.006, "perf_f1": 0.69, "perf_drop": 0.0}];return Promise.resolve({json:function(){return Promise.resolve(d);}});};</script>
 <h1>Agentic MLOps Monitor</h1>
 <div class="sub">Live drift checks &amp; agent verdicts · auto-refreshes every 15s</div>
 
@@ -108,4 +103,4 @@ refresh();
 setInterval(refresh, 15000);
 </script>
 </body>
-</html>"""
+</html>

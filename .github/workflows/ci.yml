@@ -24,8 +24,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt pytest-cov
-      - run: PYTHONPATH=src pytest tests -q --cov=mlmonitor --cov-report=term-missing --cov-fail-under=70
+      - run: pip install -e ".[dev]"
+      - run: pytest tests -q --cov=mlmonitor --cov-report=term-missing --cov-fail-under=70
 
   evaluate:
     runs-on: ubuntu-latest
@@ -36,12 +36,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -e .
       - name: Drift-detection evaluation (10 trials/scenario)
-        run: PYTHONPATH=src python scripts/evaluate_drift.py --trials 10 --n 2000
+        run: python scripts/evaluate_drift.py --trials 10 --n 2000
+      - name: Agent-gate decision eval
+        run: python scripts/evaluate_agent.py
       - uses: actions/upload-artifact@v4
         with:
-          name: drift-eval-results
+          name: eval-results
           path: eval/
 
   docker:

@@ -68,3 +68,29 @@ def latest_model_uri() -> str | None:
         return None
     latest = max(versions, key=lambda v: int(v.version))
     return f"models:/churn-baseline/{latest.version}"
+
+
+def champion_model_uri() -> str | None:
+    """Resolve the registry's @champion alias, falling back to the latest version."""
+    _ensure_experiment()
+    client = mlflow.tracking.MlflowClient()
+    try:
+        mv = client.get_model_version_by_alias("churn-baseline", "champion")
+        return f"models:/churn-baseline@champion (v{mv.version})"
+    except Exception:
+        return latest_model_uri()
+
+
+def promote_latest_to_champion() -> str | None:
+    """Tag the most recent registered model version as @champion. Returns its URI."""
+    _ensure_experiment()
+    client = mlflow.tracking.MlflowClient()
+    try:
+        versions = client.search_model_versions("name='churn-baseline'")
+        if not versions:
+            return None
+        latest = max(versions, key=lambda v: int(v.version))
+        client.set_registered_model_alias("churn-baseline", "champion", latest.version)
+        return f"models:/churn-baseline@champion (v{latest.version})"
+    except Exception:
+        return None

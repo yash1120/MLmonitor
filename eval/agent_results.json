@@ -1,0 +1,55 @@
+{
+  "accuracy": 1.0,
+  "false_trigger_rate": 0.0,
+  "missed_trigger_rate": 0.0,
+  "scenarios": [
+    {
+      "name": "both conditions",
+      "expected_allowed": true,
+      "gate_allowed": true,
+      "correct": true
+    },
+    {
+      "name": "at threshold",
+      "expected_allowed": true,
+      "gate_allowed": true,
+      "correct": true
+    },
+    {
+      "name": "data drift only",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    },
+    {
+      "name": "perf drop only",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    },
+    {
+      "name": "neither",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    },
+    {
+      "name": "just below both",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    },
+    {
+      "name": "both but disabled",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    },
+    {
+      "name": "both but rate-limited",
+      "expected_allowed": false,
+      "gate_allowed": false,
+      "correct": true
+    }
+  ]
+}

@@ -35,12 +35,16 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Log trigger
+        # Bind the untrusted input to an env var so it is passed as DATA, never
+        # template-expanded into the shell (avoids Actions script injection).
+        env:
+          REASON: ${{ github.event.inputs.reason }}
         run: |
-          echo "Retraining triggered: ${{ github.event.inputs.reason }}"
+          echo "Retraining triggered: $REASON"
 
-      - name: Train baseline
+      - name: Train challenger and promote only if it beats the champion
         run: |
-          PYTHONPATH=src python scripts/train_baseline.py
+          PYTHONPATH=src python scripts/promote_model.py
 
       - name: Run drift tests
         run: |
@@ -54,13 +58,15 @@ jobs:
 
       - name: Submit Azure ML training job
         if: env.AZURE_SUBSCRIPTION_ID != ''
+        env:
+          REASON: ${{ github.event.inputs.reason }}
         run: |
           az extension add --name ml --yes --upgrade
           az ml job create \
             --file azure/train-job.yml \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --workspace-name "$AZURE_WORKSPACE_NAME" \
-            --set tags.trigger_reason="${{ github.event.inputs.reason }}"
+            --set tags.trigger_reason="$REASON"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

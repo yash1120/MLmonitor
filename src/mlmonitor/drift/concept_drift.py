@@ -24,9 +24,15 @@ def evaluate_performance(
     target_name: str,
     baseline_f1: float,
     drop_threshold: float = 0.05,
+    threshold: float = 0.5,
 ) -> PerformanceResult:
-    """Score production-with-labels and flag concept drift if F1 drops vs baseline."""
-    if target_name not in production.columns or production.empty:
+    """Score production-with-labels and flag concept drift if F1 drops vs baseline.
+
+    `threshold` is the tuned decision threshold the baseline was measured at, so the
+    production F1 is computed at the same operating point (apples-to-apples). A
+    baseline_f1 <= 0 means 'no trustworthy baseline' — concept drift is not assessed
+    (never invents a phantom drop)."""
+    if target_name not in production.columns or production.empty or baseline_f1 <= 0:
         return PerformanceResult(
             f1=0.0,
             roc_auc=0.0,
@@ -39,8 +45,8 @@ def evaluate_performance(
     X = production[feature_names]
     y = production[target_name].to_numpy()
 
-    preds = pipeline.predict(X)
     probs = pipeline.predict_proba(X)[:, 1]
+    preds = (probs >= threshold).astype(int)
 
     f1 = float(f1_score(y, preds, zero_division=0))
     try:

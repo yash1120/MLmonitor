@@ -4,20 +4,35 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from mlmonitor import __version__
 from mlmonitor import observability as obs
+from mlmonitor.config import settings
 from mlmonitor.dashboard import DASHBOARD_HTML
-from mlmonitor.models.train import load_model, train_baseline
+from mlmonitor.logging_utils import get_logger
+from mlmonitor.models.train import load_bundle, train_baseline
 from mlmonitor.monitor import diagnose_with_agent, run_drift_check
 from mlmonitor.simulator.production_stream import (
     append_to_production_log,
     generate_production_batch,
 )
-from mlmonitor.storage.db import recent_agent_reports, recent_drift_checks
+from mlmonitor.storage.db import (
+    recent_agent_reports,
+    recent_drift_checks,
+    recent_retrain_audits,
+)
+
+logger = get_logger(__name__)
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Shared-secret guard on state-changing / quota-spending endpoints. No-ops when
+    MONITOR_API_KEY is unset (localhost dev); enforced once a key is configured."""
+    if settings.monitor_api_key and x_api_key != settings.monitor_api_key:
+        raise HTTPException(status_code=401, detail="Missing or invalid API key.")
 
 app = FastAPI(
     title="Agentic MLOps Monitor",
@@ -74,6 +89,7 @@ def root() -> dict[str, Any]:
             "POST /monitor/diagnose",
             "GET  /monitor/checks",
             "GET  /monitor/reports",
+            "GET  /monitor/audits",
             "GET  /dashboard",
             "GET  /metrics",
         ],
@@ -92,7 +108,7 @@ def metrics() -> Response:
 
 
 @app.post("/train/baseline")
-def train_baseline_route() -> dict[str, Any]:
+def train_baseline_route(_: None = Depends(require_api_key)) -> dict[str, Any]:
     result = train_baseline()
     return {
         "model_path": result.model_path,
@@ -103,29 +119,36 @@ def train_baseline_route() -> dict[str, Any]:
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest) -> PredictResponse:
+def predict(req: PredictRequest, _: None = Depends(require_api_key)) -> PredictResponse:
     try:
-        pipeline, feature_names = load_model()
+        bundle = load_bundle()
     except FileNotFoundError:
         raise HTTPException(
             status_code=409,
             detail="Baseline model not trained yet. POST /train/baseline first.",
         ) from None
+    pipeline, feature_names = bundle.pipeline, bundle.feature_names
     df = pd.DataFrame(req.instances)
     missing = set(feature_names) - set(df.columns)
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing features: {sorted(missing)}")
+    extra = set(df.columns) - set(feature_names)
+    if extra:
+        # reject rather than silently drop — a junk-key payload is a client bug or a
+        # memory-amplification attempt, not something to swallow
+        raise HTTPException(status_code=400, detail=f"Unknown features: {sorted(extra)}")
     df = df[feature_names]
     if not np.isfinite(df.to_numpy(dtype=float)).all():
         raise HTTPException(status_code=400, detail="Instances contain NaN or infinite values.")
-    preds = pipeline.predict(df).astype(int).tolist()
-    probs = pipeline.predict_proba(df)[:, 1].astype(float).tolist()
+    probs = pipeline.predict_proba(df)[:, 1].astype(float)
+    threshold = bundle.decision_threshold or 0.5
+    preds = (probs >= threshold).astype(int).tolist()
     obs.PREDICTIONS_TOTAL.inc(len(preds))
-    return PredictResponse(predictions=preds, probabilities=probs)
+    return PredictResponse(predictions=preds, probabilities=probs.tolist())
 
 
 @app.post("/simulate/batch")
-def simulate_batch(req: SimulateRequest) -> dict[str, Any]:
+def simulate_batch(req: SimulateRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
     df = generate_production_batch(
         n=req.n, drift_mode=req.drift_mode, intensity=req.intensity, seed=req.seed
     )
@@ -139,7 +162,7 @@ def simulate_batch(req: SimulateRequest) -> dict[str, Any]:
 
 
 @app.post("/monitor/check")
-def monitor_check(req: CheckRequest) -> dict[str, Any]:
+def monitor_check(req: CheckRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
     try:
         with obs.CHECK_DURATION.time():
             report = run_drift_check(window_hours=req.window_hours)
@@ -158,14 +181,18 @@ def monitor_check(req: CheckRequest) -> dict[str, Any]:
             obs.AGENT_RUNS_TOTAL.labels(outcome="ok").inc()
             if verdict.get("actually_triggered"):
                 obs.RETRAIN_TRIGGERS_TOTAL.inc()
-        except Exception as exc:
+        except Exception:
             obs.AGENT_RUNS_TOTAL.labels(outcome="error").inc()
-            response["agent_error"] = str(exc)
+            logger.exception("Agent diagnosis failed")
+            # don't leak stack/exception text to (possibly unauthenticated) clients
+            response["agent_error"] = "agent diagnosis failed"
     return response
 
 
 @app.post("/monitor/diagnose")
-def monitor_diagnose(window_hours: int = 24) -> dict[str, Any]:
+def monitor_diagnose(
+    window_hours: int = 24, _: None = Depends(require_api_key)
+) -> dict[str, Any]:
     """Force the agent to run regardless of status (useful for demos)."""
     try:
         report = run_drift_check(window_hours=window_hours)
@@ -183,6 +210,12 @@ def list_checks(limit: int = 20) -> list[dict[str, Any]]:
 @app.get("/monitor/reports")
 def list_reports(limit: int = 20) -> list[dict[str, Any]]:
     return recent_agent_reports(limit=limit)
+
+
+@app.get("/monitor/audits")
+def list_audits(limit: int = 20) -> list[dict[str, Any]]:
+    """Audit trail of every retrain-dispatch attempt (allowed, blocked, dry-run)."""
+    return recent_retrain_audits(limit=limit)
 
 
 def _serialise(report: dict[str, Any]) -> dict[str, Any]:

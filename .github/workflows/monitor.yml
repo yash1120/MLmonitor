@@ -1,0 +1,48 @@
+name: scheduled-monitor
+
+# The free equivalent of azure/schedule.yml: runs a drift check on a cron so
+# "continuous monitoring, every hour" is actually true on infrastructure the owner runs.
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    env:
+      # Agent runs only if a key is configured as a repo secret; the drift check
+      # (detectors) runs regardless, so the schedule is useful even without an LLM.
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+
+      - name: Train baseline + seed a production window
+        run: |
+          python scripts/train_baseline.py
+          python scripts/seed_production.py --clean 3000 --drifted 1500 --mode both
+
+      - name: Run drift check (agent only if GROQ_API_KEY secret is set)
+        run: |
+          if [ -n "$GROQ_API_KEY" ]; then
+            python scripts/run_monitor.py --window-hours 168 --force-agent | tee drift_result.txt
+          else
+            python scripts/run_monitor.py --window-hours 168 --no-agent | tee drift_result.txt
+          fi
+
+      - name: Publish result to job summary
+        if: always()
+        run: |
+          echo '## Scheduled drift check' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat drift_result.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
